@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="dark">
+    <title>Five-state kinetic approximation</title>
+    <style>
+        :root {
+            --bg: #090d14; --panel: #121923; --ink: #eef3fa; --muted: #a5afbf;
+            --line: #2a3548; --shadow: 0 12px 30px rgba(0,0,0,.35); --app-height: 100dvh;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: var(--app-height); }
+        body { margin: 0; background: radial-gradient(circle at top,#111827 0%,var(--bg) 55%,#05070b 100%); color:var(--ink); font-family:Inter,"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif; overflow:hidden; }
+        header { display:flex; align-items:center; background:linear-gradient(90deg,#05080e,#141b27 50%,#05080e); padding:10px 14px; box-shadow:var(--shadow); border-bottom:1px solid rgba(255,255,255,.05); }
+        .header-nav { display:flex; gap:8px; align-items:center; }
+        .header-button { min-width:160px; height:42px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.07); color:#fff; font:inherit; font-size:.82rem; font-weight:850; padding:0 18px; border-radius:12px; white-space:nowrap; cursor:pointer; }
+        .header-button.is-active { background:rgba(135,173,255,.18); border-color:rgba(135,173,255,.35); }
+        main { width:min(1500px,calc(100% - 24px)); height:calc(var(--app-height) - 58px); margin:0 auto; padding:12px 0; display:flex; flex-direction:column; gap:12px; }
+        .top-grid { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .condition { min-height:0; display:flex; flex-direction:column; gap:12px; padding:16px; background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01)); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); }
+        .condition-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+        .condition-title { font-size:.98rem; font-weight:800; color:var(--muted); }
+        .flux-pill { display:inline-flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid var(--line); border-radius:999px; background:#0e141e; color:var(--muted); font-size:.8rem; font-weight:800; white-space:nowrap; }
+        .flux-pill input { width:62px; border:0; background:transparent; color:var(--ink); font:inherit; text-align:center; }
+        .flux-stepper { border:0; color:var(--ink); background:#273348; width:24px; height:24px; border-radius:50%; cursor:pointer; font-weight:900; }
+        .chart-shell { position:relative; flex:1 1 auto; min-height:0; display:grid; place-items:center; }
+        .pie-stage { position:relative; width:min(100%,min(62vh,620px)); aspect-ratio:1; padding:24px; }
+        .pie-chart,.boundary-layer { position:absolute; inset:24px; width:calc(100% - 48px); height:calc(100% - 48px); }
+        .pie-chart { filter:drop-shadow(0 12px 24px rgba(0,0,0,.28)); }
+        .pie-chart path,.pie-chart circle { stroke:#0d131d; stroke-width:.012; }
+        .boundary-layer { pointer-events:none; }
+        .boundary-handle { position:absolute; width:34px; height:34px; padding:0; border:3px solid currentColor; border-radius:50%; background:#111923; color:white; box-shadow:0 2px 10px rgba(0,0,0,.55); transform:translate(-50%,-50%) translate(var(--stack-x,0),var(--stack-y,0)); pointer-events:auto; touch-action:none; cursor:grab; z-index:2; }
+        .boundary-handle::after { content:""; display:block; width:8px; height:8px; margin:auto; border-radius:50%; background:currentColor; }
+        .boundary-handle:focus-visible { outline:3px solid white; outline-offset:2px; }
+        .table-panel { flex:0 0 auto; background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01)); border:1px solid var(--line); border-radius:14px; overflow:auto; }
+        table { width:100%; border-collapse:collapse; min-width:690px; font-size:.82rem; }
+        th,td { padding:8px 11px; border-bottom:1px solid rgba(255,255,255,.07); text-align:right; }
+        th { color:var(--muted); font-size:.73rem; }
+        th:first-child,td:first-child { text-align:left; }
+        tr:last-child td { border-bottom:0; }
+        .state-cell { display:inline-flex; align-items:center; gap:8px; font-weight:800; }
+        .state-swatch { width:11px; height:11px; border-radius:3px; }
+        .metric { font-variant-numeric:tabular-nums; white-space:nowrap; }
+        @media(max-width:850px) {
+            header { padding:8px; overflow-x:auto; }
+            .header-nav { width:max-content; }
+            .header-button { min-width:unset; padding:0 12px; }
+            main { height:calc(var(--app-height) - 58px); }
+            .top-grid { grid-template-columns:1fr 1fr; }
+            .condition { padding:10px; }
+            .condition-head { flex-direction:column; align-items:flex-start; }
+            .flux-pill { padding:5px 7px; gap:4px; font-size:.72rem; }
+            .pie-stage { width:100%; padding:12px; }
+            .pie-chart,.boundary-layer { inset:12px; width:calc(100% - 24px); height:calc(100% - 24px); }
+            .boundary-handle { width:27px; height:27px; }
+            .table-panel { max-height:31vh; }
+            th,td { padding:7px 8px; }
+        }
+        @media(max-width:560px) {
+            .top-grid { grid-template-columns:1fr; grid-template-rows:1fr 1fr; }
+            .condition { gap:4px; }
+            .condition-head { flex-direction:row; align-items:center; }
+            .pie-stage { height:100%; width:auto; max-width:100%; }
+            .table-panel { max-height:29vh; }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <nav class="header-nav" aria-label="Page navigation">
+        <button type="button" class="header-button" onclick="location.href='index.html'">Kinetic approximation</button>
+        <button type="button" class="header-button is-active" aria-current="page">Five-state pie charts</button>
+        <button type="button" class="header-button" onclick="location.href='cryodrgn.html'">cryoDRGN</button>
+        <button type="button" class="header-button" onclick="location.href='conformations.html'">conformations</button>
+    </nav>
+</header>
+<main>
+    <section class="top-grid" aria-label="Five-state kinetic conditions">
+        <article class="condition">
+            <div class="condition-head"><div class="condition-title">Microtubules absent</div><label class="flux-pill"><span>k<sub>basal</sub></span><button class="flux-stepper" data-target="basal-flux" data-delta="-0.1" aria-label="Decrease rate">−</button><input id="basal-flux" type="number" min="0" step="0.1" value="1.0" aria-label="Off microtubule forward flux"><button class="flux-stepper" data-target="basal-flux" data-delta="0.1" aria-label="Increase rate">+</button><span>s<sup>−1</sup></span></label></div>
+            <div class="chart-shell"><div class="pie-stage"><svg id="basal-pie" class="pie-chart" viewBox="-1.02 -1.02 2.04 2.04" role="img" aria-label="Microtubules absent five-state pie chart"></svg><div id="basal-boundaries" class="boundary-layer" aria-label="Pie chart boundary handles"></div></div></div>
+        </article>
+        <article class="condition">
+            <div class="condition-head"><div class="condition-title">Microtubules present</div><label class="flux-pill"><span>k<sub>cat</sub></span><button class="flux-stepper" data-target="mt-flux" data-delta="-0.1" aria-label="Decrease rate">−</button><input id="mt-flux" type="number" min="0" step="0.1" value="4.0" aria-label="On microtubule forward flux"><button class="flux-stepper" data-target="mt-flux" data-delta="0.1" aria-label="Increase rate">+</button><span>s<sup>−1</sup></span></label></div>
+            <div class="chart-shell"><div class="pie-stage"><svg id="mt-pie" class="pie-chart" viewBox="-1.02 -1.02 2.04 2.04" role="img" aria-label="Microtubules present five-state pie chart"></svg><div id="mt-boundaries" class="boundary-layer" aria-label="Pie chart boundary handles"></div></div></div>
+        </article>
+    </section>
+    <section class="table-panel" aria-label="Populations and forward rates">
+        <table><thead><tr><th>State</th><th>Off MT %</th><th>On MT %</th><th>Forward rate off MTs</th><th>Forward rate on MTs</th><th>MT stimulation</th></tr></thead><tbody id="summary-body"></tbody></table>
+    </section>
+</main>
+<script>
+    const states = [
+        { key: "c1", label: "c1-ADP.Pi", color: "#ff7d7c" },
+        { key: "c2", label: "c2-ADP", color: "#69c9ef" },
+        { key: "c3", label: "c3-ADP", color: "#7775f3" },
+        { key: "c4", label: "c4-ADP", color: "#cf7bef" },
+        { key: "c4apo", label: "c4-Apo", color: "#ffd579" }
+    ];
+    const conditions = {
+        basal: { fluxInput: document.getElementById("basal-flux"), pie: document.getElementById("basal-pie"), boundaryLayer: document.getElementById("basal-boundaries"), values: Object.fromEntries(states.map(s => [s.key, 20])), flux: 1 },
+        mt: { fluxInput: document.getElementById("mt-flux"), pie: document.getElementById("mt-pie"), boundaryLayer: document.getElementById("mt-boundaries"), values: Object.fromEntries(states.map(s => [s.key, 20])), flux: 4 }
+    };
+    const activeDrag = { conditionKey: null, boundaryIndex: null };
+    const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
+    const boundariesFromValues = values => states.slice(0,-1).reduce((out,state,i) => { out.push((out[i-1] || 0) + values[state.key]); return out; }, []);
+    const valuesFromBoundaries = boundaries => {
+        const vals = {};
+        states.forEach((state,i) => { const start = i ? boundaries[i-1] : 0; const end = i < boundaries.length ? boundaries[i] : 100; vals[state.key] = end-start; });
+        return vals;
+    };
+    function piePath(a,b) {
+        const start=a*Math.PI*2-Math.PI/2, end=b*Math.PI*2-Math.PI/2;
+        const sx=Math.cos(start), sy=Math.sin(start), ex=Math.cos(end), ey=Math.sin(end);
+        return `M 0 0 L ${sx} ${sy} A 1 1 0 ${b-a>.5?1:0} 1 ${ex} ${ey} Z`;
+    }
+    function fractionFromPointer(x,y,rect) {
+        let f=(Math.atan2(y-(rect.top+rect.height/2),x-(rect.left+rect.width/2))+Math.PI/2)/(Math.PI*2);
+        if(f<0) f+=1; return f*100;
+    }
+    function setBoundary(key,index,value) {
+        const c=conditions[key], low=index?c.boundaries[index-1]:0, high=index===c.boundaries.length-1?100:c.boundaries[index+1];
+        c.boundaries[index]=clamp(value,low,high); c.values=valuesFromBoundaries(c.boundaries); render();
+    }
+    function renderPie(key,c) {
+        c.pie.innerHTML=`<title>${key==='mt'?'Microtubules present':'Microtubules absent'} state populations</title>`;
+        let cursor=0;
+        states.forEach(s=>{ const value=c.values[s.key]; if(value>0){ const el=document.createElementNS('http://www.w3.org/2000/svg',value>=100?'circle':'path'); if(value>=100){el.setAttribute('cx','0');el.setAttribute('cy','0');el.setAttribute('r','1');} else el.setAttribute('d',piePath(cursor/100,(cursor+value)/100)); el.setAttribute('fill',s.color); el.setAttribute('aria-label',`${s.label}: ${value.toFixed(0)} percent`); c.pie.appendChild(el); } cursor+=value; });
+    }
+    function renderHandles(c) {
+        const rect=c.boundaryLayer.getBoundingClientRect(), cx=rect.width/2, cy=rect.height/2, radius=Math.min(rect.width,rect.height)/2;
+        c.boundaryLayer.querySelectorAll('.boundary-handle').forEach((handle,i)=>{ const angle=c.boundaries[i]/100*Math.PI*2-Math.PI/2; handle.style.left=`${cx+Math.cos(angle)*radius}px`; handle.style.top=`${cy+Math.sin(angle)*radius}px`; handle.style.color=states[i].color; handle.title=`${states[i].label} to ${states[i+1].label}: ${c.boundaries[i].toFixed(0)}%`; });
+    }
+    function fmt(v) { return Number.isFinite(v)?`${v>=100?v.toFixed(0):v>=10?v.toFixed(1):v.toFixed(2)} s⁻¹`:'very fast'; }
+    function renderTable(rates) {
+        const body=document.getElementById('summary-body'); body.innerHTML='';
+        states.forEach(s=>{ const a=rates.basal[s.key], b=rates.mt[s.key], fold=Number.isFinite(a)&&a>0&&Number.isFinite(b)?b/a:Infinity; const row=document.createElement('tr'); row.innerHTML=`<td><span class="state-cell"><span class="state-swatch" style="background:${s.color}"></span>${s.label}</span></td><td class="metric">${conditions.basal.values[s.key].toFixed(0)}%</td><td class="metric">${conditions.mt.values[s.key].toFixed(0)}%</td><td class="metric">${fmt(a)}</td><td class="metric">${fmt(b)}</td><td class="metric">${Number.isFinite(fold)?`${fold.toFixed(1)} ×`:'very large'}</td>`; body.appendChild(row); });
+    }
+    function render() {
+        const rates={};
+        Object.entries(conditions).forEach(([key,c])=>{ c.values=valuesFromBoundaries(c.boundaries); renderPie(key,c); renderHandles(c); const flux=Math.max(Number.parseFloat(c.fluxInput.value)||0,0); rates[key]=Object.fromEntries(states.map(s=>[s.key,c.values[s.key]<=0||flux<=0?Infinity:flux/(c.values[s.key]/100)])); });
+        renderTable(rates);
+    }
+    Object.entries(conditions).forEach(([key,c])=>{
+        c.boundaries=boundariesFromValues(c.values);
+        states.slice(0,-1).forEach((state,i)=>{ const h=document.createElement('button'); h.type='button'; h.className='boundary-handle'; h.setAttribute('aria-label',`${state.label} boundary`); h.addEventListener('pointerdown',e=>{activeDrag.conditionKey=key;activeDrag.boundaryIndex=i;h.setPointerCapture(e.pointerId);}); h.addEventListener('keydown',e=>{ const step=e.shiftKey?2:1; let v=c.boundaries[i]; if(['ArrowLeft','ArrowDown'].includes(e.key))v-=step; else if(['ArrowRight','ArrowUp'].includes(e.key))v+=step; else if(e.key==='Home')v=i?c.boundaries[i-1]:0; else if(e.key==='End')v=i===c.boundaries.length-1?100:c.boundaries[i+1]; else return; e.preventDefault();setBoundary(key,i,v); }); c.boundaryLayer.appendChild(h); });
+        c.fluxInput.addEventListener('input',render);
+    });
+    document.addEventListener('pointermove',e=>{ if(!activeDrag.conditionKey)return; const c=conditions[activeDrag.conditionKey],rect=c.pie.getBoundingClientRect(); setBoundary(activeDrag.conditionKey,activeDrag.boundaryIndex,fractionFromPointer(e.clientX,e.clientY,rect)); });
+    document.addEventListener('pointerup',()=>{activeDrag.conditionKey=null;activeDrag.boundaryIndex=null;});
+    document.querySelectorAll('.flux-stepper').forEach(button=>button.addEventListener('click',()=>{ const input=document.getElementById(button.dataset.target), next=Math.max(0,(Number.parseFloat(input.value)||0)+Number.parseFloat(button.dataset.delta)); input.value=(Math.round(next*10)/10).toFixed(1); input.dispatchEvent(new Event('input')); }));
+    function updateHeight(){document.documentElement.style.setProperty('--app-height',`${window.innerHeight}px`);}
+    window.addEventListener('resize',()=>{updateHeight();render();}); updateHeight(); render();
+</script>
+</body>
+</html>
