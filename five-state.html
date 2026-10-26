@@ -15,8 +15,10 @@
         body { margin: 0; background: radial-gradient(circle at top,#111827 0%,var(--bg) 55%,#05070b 100%); color:var(--ink); font-family:Inter,"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif; overflow:hidden; }
         header { display:flex; align-items:center; background:linear-gradient(90deg,#05080e,#141b27 50%,#05080e); padding:10px 14px; box-shadow:var(--shadow); border-bottom:1px solid rgba(255,255,255,.05); }
         .header-nav { display:flex; gap:8px; align-items:center; }
+        .header-actions { display:flex; align-items:center; margin-left:auto; }
         .header-button { min-width:160px; height:42px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.07); color:#fff; font:inherit; font-size:.82rem; font-weight:850; padding:0 18px; border-radius:12px; white-space:nowrap; cursor:pointer; }
         .header-button.is-active { background:rgba(135,173,255,.18); border-color:rgba(135,173,255,.35); }
+        .header-button.is-secondary { background:rgba(135,173,255,.12); }
         main { width:min(1500px,calc(100% - 24px)); height:calc(var(--app-height) - 58px); margin:0 auto; padding:12px 0; display:flex; flex-direction:column; gap:12px; }
         .top-grid { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
         .condition { min-height:0; display:flex; flex-direction:column; gap:12px; padding:16px; background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01)); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); }
@@ -35,6 +37,7 @@
         .boundary-handle::after { content:""; display:block; width:8px; height:8px; margin:auto; border-radius:50%; background:currentColor; }
         .boundary-handle:focus-visible { outline:3px solid white; outline-offset:2px; }
         .table-panel { flex:0 0 auto; background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01)); border:1px solid var(--line); border-radius:14px; overflow:auto; }
+        .table-note { margin:9px 11px 0; color:var(--muted); font-size:.75rem; }
         table { width:100%; border-collapse:collapse; min-width:690px; font-size:.82rem; }
         th,td { padding:8px 11px; border-bottom:1px solid rgba(255,255,255,.07); text-align:right; }
         th { color:var(--muted); font-size:.73rem; }
@@ -43,6 +46,9 @@
         .state-cell { display:inline-flex; align-items:center; gap:8px; font-weight:800; }
         .state-swatch { width:11px; height:11px; border-radius:3px; }
         .metric { font-variant-numeric:tabular-nums; white-space:nowrap; }
+        .population-input { width:82px; padding:5px 7px; border:1px solid var(--line); border-radius:7px; background:#0e141e; color:var(--ink); font:inherit; font-variant-numeric:tabular-nums; text-align:right; }
+        .population-input:focus-visible { outline:2px solid rgba(135,173,255,.75); outline-offset:1px; }
+        .population-input[readonly] { color:var(--muted); background:rgba(255,255,255,.04); }
         @media(max-width:850px) {
             header { padding:8px; overflow-x:auto; }
             .header-nav { width:max-content; }
@@ -75,6 +81,7 @@
         <button type="button" class="header-button" onclick="location.href='cryodrgn.html'">cryoDRGN</button>
         <button type="button" class="header-button" onclick="location.href='conformations.html'">conformations</button>
     </nav>
+    <div class="header-actions"><button type="button" id="reset-button" class="header-button is-secondary">Reset to preset values</button></div>
 </header>
 <main>
     <section class="top-grid" aria-label="Five-state kinetic conditions">
@@ -88,6 +95,7 @@
         </article>
     </section>
     <section class="table-panel" aria-label="Populations and forward rates">
+        <p class="table-note">Edit any of the first four percentages and press Enter; c4-Apo adjusts to keep each condition at 100%.</p>
         <table><thead><tr><th>State</th><th>Off MT %</th><th>On MT %</th><th>Forward rate off MTs</th><th>Forward rate on MTs</th><th>MT stimulation</th></tr></thead><tbody id="summary-body"></tbody></table>
     </section>
 </main>
@@ -100,8 +108,8 @@
         { key: "c4apo", label: "c4-Apo", color: "#ffd579" }
     ];
     const conditions = {
-        basal: { fluxInput: document.getElementById("basal-flux"), pie: document.getElementById("basal-pie"), boundaryLayer: document.getElementById("basal-boundaries"), values: Object.fromEntries(states.map(s => [s.key, 20])), flux: 1 },
-        mt: { fluxInput: document.getElementById("mt-flux"), pie: document.getElementById("mt-pie"), boundaryLayer: document.getElementById("mt-boundaries"), values: Object.fromEntries(states.map(s => [s.key, 20])), flux: 4 }
+        basal: { fluxInput: document.getElementById("basal-flux"), pie: document.getElementById("basal-pie"), boundaryLayer: document.getElementById("basal-boundaries"), values: { c1: 21.08, c2: 12.23, c3: 29.03, c4: 22.4, c4apo: 15.26 }, flux: 1 },
+        mt: { fluxInput: document.getElementById("mt-flux"), pie: document.getElementById("mt-pie"), boundaryLayer: document.getElementById("mt-boundaries"), values: { c1: 21.19, c2: 14.37, c3: 34.51, c4: 14.35, c4apo: 15.59 }, flux: 4 }
     };
     const activeDrag = { conditionKey: null, boundaryIndex: null };
     const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
@@ -134,9 +142,47 @@
         c.boundaryLayer.querySelectorAll('.boundary-handle').forEach((handle,i)=>{ const angle=c.boundaries[i]/100*Math.PI*2-Math.PI/2; handle.style.left=`${cx+Math.cos(angle)*radius}px`; handle.style.top=`${cy+Math.sin(angle)*radius}px`; handle.style.color=states[i].color; handle.title=`${states[i].label} to ${states[i+1].label}: ${c.boundaries[i].toFixed(0)}%`; });
     }
     function fmt(v) { return Number.isFinite(v)?`${v>=100?v.toFixed(0):v>=10?v.toFixed(1):v.toFixed(2)} s⁻¹`:'very fast'; }
+    function fmtPercent(value) { return String(Number(value.toPrecision(15))); }
     function renderTable(rates) {
         const body=document.getElementById('summary-body'); body.innerHTML='';
-        states.forEach(s=>{ const a=rates.basal[s.key], b=rates.mt[s.key], fold=Number.isFinite(a)&&a>0&&Number.isFinite(b)?b/a:Infinity; const row=document.createElement('tr'); row.innerHTML=`<td><span class="state-cell"><span class="state-swatch" style="background:${s.color}"></span>${s.label}</span></td><td class="metric">${conditions.basal.values[s.key].toFixed(0)}%</td><td class="metric">${conditions.mt.values[s.key].toFixed(0)}%</td><td class="metric">${fmt(a)}</td><td class="metric">${fmt(b)}</td><td class="metric">${Number.isFinite(fold)?`${fold.toFixed(1)} ×`:'very large'}</td>`; body.appendChild(row); });
+        states.forEach((s,index)=>{
+            const a=rates.basal[s.key], b=rates.mt[s.key], fold=Number.isFinite(a)&&a>0&&Number.isFinite(b)?b/a:Infinity;
+            const finalState=index===states.length-1;
+            const row=document.createElement('tr');
+            const populationCell=(conditionKey)=>{
+                const value=conditions[conditionKey].values[s.key];
+                return `<input class="population-input" type="text" inputmode="decimal" autocomplete="off" aria-label="${s.label} ${conditionKey==='basal'?'off':'on'} microtubule percentage${finalState?' (remainder)':''}" value="${fmtPercent(value)}" data-condition="${conditionKey}" data-state="${s.key}"${finalState?' readonly title="Automatically set so the percentages sum to 100%"':''}>%`;
+            };
+            row.innerHTML=`<td><span class="state-cell"><span class="state-swatch" style="background:${s.color}"></span>${s.label}</span></td><td class="metric">${populationCell('basal')}</td><td class="metric">${populationCell('mt')}</td><td class="metric">${fmt(a)}</td><td class="metric">${fmt(b)}</td><td class="metric">${Number.isFinite(fold)?`${fold.toFixed(1)} ×`:'very large'}</td>`;
+            body.appendChild(row);
+        });
+        body.querySelectorAll('.population-input:not([readonly])').forEach(input=>input.addEventListener('keydown',event=>{
+            if(event.key!=='Enter') return;
+            event.preventDefault();
+            commitPopulationInput(input);
+        }));
+    }
+    function commitPopulationInput(input) {
+        const condition=conditions[input.dataset.condition];
+        const stateIndex=states.findIndex(state=>state.key===input.dataset.state);
+        const entered=Number(input.value.trim().replace(',','.'));
+        if(!Number.isFinite(entered)||input.value.trim()==='') { render(); return; }
+        const otherTotal=states.slice(0,-1).reduce((sum,state,index)=>index===stateIndex?sum:sum+condition.values[state.key],0);
+        const maximum=Math.max(0,100-otherTotal);
+        condition.values[states[stateIndex].key]=clamp(entered,0,maximum);
+        condition.values[states[states.length-1].key]=100-states.slice(0,-1).reduce((sum,state)=>sum+condition.values[state.key],0);
+        condition.boundaries=boundariesFromValues(condition.values);
+        render();
+        const nextInput=document.querySelector(`.population-input[data-condition="${input.dataset.condition}"][data-state="${input.dataset.state}"]`);
+        nextInput?.focus();
+    }
+    function resetToPresetValues() {
+        conditions.basal.fluxInput.value='1.0';
+        conditions.mt.fluxInput.value='4.0';
+        conditions.basal.values={c1:21.08,c2:12.23,c3:29.03,c4:22.4,c4apo:15.26};
+        conditions.mt.values={c1:21.19,c2:14.37,c3:34.51,c4:14.35,c4apo:15.59};
+        Object.values(conditions).forEach(condition=>{condition.boundaries=boundariesFromValues(condition.values);});
+        render();
     }
     function render() {
         const rates={};
@@ -151,6 +197,7 @@
     document.addEventListener('pointermove',e=>{ if(!activeDrag.conditionKey)return; const c=conditions[activeDrag.conditionKey],rect=c.pie.getBoundingClientRect(); setBoundary(activeDrag.conditionKey,activeDrag.boundaryIndex,fractionFromPointer(e.clientX,e.clientY,rect)); });
     document.addEventListener('pointerup',()=>{activeDrag.conditionKey=null;activeDrag.boundaryIndex=null;});
     document.querySelectorAll('.flux-stepper').forEach(button=>button.addEventListener('click',()=>{ const input=document.getElementById(button.dataset.target), next=Math.max(0,(Number.parseFloat(input.value)||0)+Number.parseFloat(button.dataset.delta)); input.value=(Math.round(next*10)/10).toFixed(1); input.dispatchEvent(new Event('input')); }));
+    document.getElementById('reset-button').addEventListener('click',resetToPresetValues);
     function updateHeight(){document.documentElement.style.setProperty('--app-height',`${window.innerHeight}px`);}
     window.addEventListener('resize',()=>{updateHeight();render();}); updateHeight(); render();
 </script>
