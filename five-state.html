@@ -27,6 +27,9 @@
         .flux-pill { display:inline-flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid var(--line); border-radius:999px; background:#0e141e; color:var(--muted); font-size:.8rem; font-weight:800; white-space:nowrap; }
         .flux-pill input { width:62px; border:0; background:transparent; color:var(--ink); font:inherit; text-align:center; }
         .flux-pill input[readonly] { color:#c4d1e4; }
+        .flux-pill.is-calculated { gap:10px; }
+        .flux-pill.is-calculated input { width:140px; text-align:right; }
+        .flux-pill.is-calculated #mt-flux-label { color:var(--ink); }
         .flux-stepper { border:0; color:var(--ink); background:#273348; width:24px; height:24px; border-radius:50%; cursor:pointer; font-weight:900; }
         .flux-stepper:disabled { opacity:.35; cursor:default; }
         .chart-shell { position:relative; flex:1 1 auto; min-height:0; display:grid; place-items:center; }
@@ -96,7 +99,7 @@
             <div class="chart-shell"><div class="pie-stage"><svg id="basal-pie" class="pie-chart" viewBox="-1.02 -1.02 2.04 2.04" role="img" aria-label="Microtubules absent five-state pie chart"></svg><div id="basal-boundaries" class="boundary-layer" aria-label="Pie chart boundary handles"></div></div></div>
         </article>
         <article class="condition">
-            <div class="condition-head"><div class="condition-title">Microtubules present</div><label class="flux-pill"><span id="mt-flux-label">k<sub>cat</sub></span><button type="button" class="flux-stepper" data-target="mt-flux" data-delta="-0.1" aria-label="Decrease kcat">−</button><input id="mt-flux" type="number" min="0" step="0.1" value="4.0" aria-label="On microtubule kcat"><button type="button" class="flux-stepper" data-target="mt-flux" data-delta="0.1" aria-label="Increase kcat">+</button><span>s<sup>−1</sup></span></label></div>
+            <div class="condition-head"><div class="condition-title">Microtubules present</div><label id="mt-flux-pill" class="flux-pill"><span id="mt-flux-label">k<sub>cat</sub></span><button type="button" class="flux-stepper" data-target="mt-flux" data-delta="-0.1" aria-label="Decrease kcat">−</button><input id="mt-flux" type="number" min="0" step="0.1" value="4.0" aria-label="On microtubule kcat"><button type="button" class="flux-stepper" data-target="mt-flux" data-delta="0.1" aria-label="Increase kcat">+</button><span>s<sup>−1</sup></span></label></div>
             <div class="chart-shell"><div class="pie-stage"><svg id="mt-pie" class="pie-chart" viewBox="-1.02 -1.02 2.04 2.04" role="img" aria-label="Microtubules present five-state pie chart"></svg><div id="mt-boundaries" class="boundary-layer" aria-label="Pie chart boundary handles"></div></div></div>
         </article>
     </section>
@@ -281,8 +284,9 @@
         if(stimulationMode) calculateStimulatedValues();
         conditions.mt.fluxInput.readOnly=stimulationMode;
         conditions.mt.fluxInput.setAttribute('aria-label',stimulationMode?'Calculated kcat from kbasal and MT stimulation':'On microtubule kcat');
-        document.getElementById('mt-flux-label').innerHTML=stimulationMode?'k<sub>cat</sub> (calculated)':'k<sub>cat</sub>';
-        document.querySelectorAll('.flux-stepper[data-target="mt-flux"]').forEach(button=>button.disabled=stimulationMode);
+        document.getElementById('mt-flux-label').textContent=stimulationMode?'calculated kcat':'kcat';
+        document.getElementById('mt-flux-pill').classList.toggle('is-calculated',stimulationMode);
+        document.querySelectorAll('.flux-stepper[data-target="mt-flux"]').forEach(button=>button.hidden=stimulationMode);
         const rates={};
         Object.entries(conditions).forEach(([key,c])=>{
             const values=displayedValues(key);
