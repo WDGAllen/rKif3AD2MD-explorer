@@ -14,8 +14,8 @@
         html, body { height: var(--app-height); }
         body { margin: 0; background: radial-gradient(circle at top,#111827 0%,var(--bg) 55%,#05070b 100%); color:var(--ink); font-family:Inter,"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif; overflow:hidden; }
         header { display:flex; align-items:center; background:linear-gradient(90deg,#05080e,#141b27 50%,#05080e); padding:10px 14px; box-shadow:var(--shadow); border-bottom:1px solid rgba(255,255,255,.05); }
-        .header-nav { display:flex; gap:8px; align-items:center; }
-        .header-actions { display:flex; align-items:center; margin-left:auto; }
+        .header-nav { display:flex; gap:8px; align-items:center; flex:0 0 auto; }
+        .header-actions { display:flex; gap:8px; align-items:center; margin-left:auto; flex:0 0 auto; }
         .header-button { min-width:160px; height:42px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.07); color:#fff; font:inherit; font-size:.82rem; font-weight:850; padding:0 18px; border-radius:12px; white-space:nowrap; cursor:pointer; }
         .header-button.is-active { background:rgba(135,173,255,.18); border-color:rgba(135,173,255,.35); }
         .header-button.is-secondary { background:rgba(135,173,255,.12); }
@@ -81,7 +81,11 @@
         <button type="button" class="header-button" onclick="location.href='cryodrgn.html'">cryoDRGN</button>
         <button type="button" class="header-button" onclick="location.href='conformations.html'">conformations</button>
     </nav>
-    <div class="header-actions"><button type="button" id="reset-button" class="header-button is-secondary">Reset to preset values</button></div>
+    <div class="header-actions">
+        <button type="button" id="three-state-toggle" class="header-button is-secondary">Revert to three state</button>
+        <button type="button" id="stimulation-toggle" class="header-button is-secondary">Enter MT stimulation</button>
+        <button type="button" id="reset-button" class="header-button is-secondary">Reset to preset values</button>
+    </div>
 </header>
 <main>
     <section class="top-grid" aria-label="Five-state kinetic conditions">
@@ -95,22 +99,39 @@
         </article>
     </section>
     <section class="table-panel" aria-label="Populations and forward rates">
-        <p class="table-note">Edit any of the first four percentages and press Enter; c4-Apo adjusts to keep each condition at 100%.</p>
+        <p id="table-note" class="table-note"></p>
         <table><thead><tr><th>State</th><th>Off MT %</th><th>On MT %</th><th>Forward rate off MTs</th><th>Forward rate on MTs</th><th>MT stimulation</th></tr></thead><tbody id="summary-body"></tbody></table>
     </section>
 </main>
 <script>
-    const states = [
+    const fiveStates = [
         { key: "c1", label: "c1-ADP.Pi", color: "#ff7d7c" },
         { key: "c2", label: "c2-ADP", color: "#69c9ef" },
         { key: "c3", label: "c3-ADP", color: "#7775f3" },
         { key: "c4", label: "c4-ADP", color: "#cf7bef" },
         { key: "c4apo", label: "c4-Apo", color: "#ffd579" }
     ];
+    const threeStates = [
+        { key: "c1", label: "C1-ADP.Pi", color: "#ff7d7c" },
+        { key: "adp", label: "C2-C4ADP", color: "#69c9ef" },
+        { key: "c4apo", label: "C4-Apo", color: "#ffd579" }
+    ];
+    let states = fiveStates;
+    let threeStateMode = false;
+    let stimulationMode = false;
     const conditions = {
         basal: { fluxInput: document.getElementById("basal-flux"), pie: document.getElementById("basal-pie"), boundaryLayer: document.getElementById("basal-boundaries"), values: { c1: 21.08, c2: 12.23, c3: 29.03, c4: 22.4, c4apo: 15.26 }, flux: 1 },
         mt: { fluxInput: document.getElementById("mt-flux"), pie: document.getElementById("mt-pie"), boundaryLayer: document.getElementById("mt-boundaries"), values: { c1: 21.19, c2: 14.37, c3: 34.51, c4: 14.35, c4apo: 15.59 }, flux: 4 }
     };
+    const initialValues = {
+        basal: { c1: 21.08, c2: 12.23, c3: 29.03, c4: 22.4, c4apo: 15.26 },
+        mt: { c1: 21.19, c2: 14.37, c3: 34.51, c4: 14.35, c4apo: 15.59 }
+    };
+    let adpWeights = {
+        basal: { c2: 12.23 / 63.66, c3: 29.03 / 63.66, c4: 22.4 / 63.66 },
+        mt: { c2: 14.37 / 63.23, c3: 34.51 / 63.23, c4: 14.35 / 63.23 }
+    };
+    let stimulations = {};
     const activeDrag = { conditionKey: null, boundaryIndex: null };
     const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
     const boundariesFromValues = values => states.slice(0,-1).reduce((out,state,i) => { out.push((out[i-1] || 0) + values[state.key]); return out; }, []);
@@ -119,6 +140,38 @@
         states.forEach((state,i) => { const start = i ? boundaries[i-1] : 0; const end = i < boundaries.length ? boundaries[i] : 100; vals[state.key] = end-start; });
         return vals;
     };
+    function detailedValues(values, conditionKey) {
+        if (!threeStateMode) return { ...values };
+        const adp = Math.max(0, values.adp || 0), weights = adpWeights[conditionKey];
+        return { c1: values.c1 || 0, c2: adp * weights.c2, c3: adp * weights.c3, c4: adp * weights.c4, c4apo: values.c4apo || 0 };
+    }
+    function displayedValues(conditionKey) {
+        const values = conditions[conditionKey].values;
+        if (!threeStateMode) return { ...values };
+        return { c1: values.c1, adp: values.c2 + values.c3 + values.c4, c4apo: values.c4apo };
+    }
+    function storeDisplayedValues(conditionKey, values) {
+        conditions[conditionKey].values = detailedValues(values, conditionKey);
+    }
+    function flux(conditionKey) { return Math.max(Number.parseFloat(conditions[conditionKey].fluxInput.value) || 0, 0); }
+    function foldChanges() {
+        const off = displayedValues('basal'), on = displayedValues('mt'), offFlux = flux('basal'), onFlux = flux('mt');
+        return Object.fromEntries(states.map(state => [state.key, !off[state.key] || !on[state.key] || !offFlux || !onFlux ? Infinity : (onFlux / on[state.key]) / (offFlux / off[state.key])]));
+    }
+    function setStimulationsFromCurrentValues() { stimulations = foldChanges(); }
+    function calculateStimulatedValues() {
+        const off = displayedValues('basal');
+        const weighted = states.map(state => ({ key: state.key, weight: Math.max(0, off[state.key]) / Math.max(Number(stimulations[state.key]) || 1, 1e-12) }));
+        const total = weighted.reduce((sum, item) => sum + item.weight, 0);
+        const values = Object.fromEntries(weighted.map(item => [item.key, total > 0 ? 100 * item.weight / total : 0]));
+        const sum = states.slice(0,-1).reduce((acc, state) => acc + values[state.key], 0);
+        values[states[states.length-1].key] = Math.max(0, 100 - sum);
+        conditions.mt.values = detailedValues(values, threeStateMode ? 'basal' : 'mt');
+    }
+    function updateToggleLabels() {
+        document.getElementById('three-state-toggle').textContent = threeStateMode ? 'Return to five state' : 'Revert to three state';
+        document.getElementById('stimulation-toggle').textContent = stimulationMode ? 'Exit MT stimulation' : 'Enter MT stimulation';
+    }
     function piePath(a,b) {
         const start=a*Math.PI*2-Math.PI/2, end=b*Math.PI*2-Math.PI/2;
         const sx=Math.cos(start), sy=Math.sin(start), ex=Math.cos(end), ey=Math.sin(end);
@@ -129,77 +182,146 @@
         if(f<0) f+=1; return f*100;
     }
     function setBoundary(key,index,value) {
+        if (key === 'mt' && stimulationMode) return;
         const c=conditions[key], low=index?c.boundaries[index-1]:0, high=index===c.boundaries.length-1?100:c.boundaries[index+1];
-        c.boundaries[index]=clamp(value,low,high); c.values=valuesFromBoundaries(c.boundaries); render();
+        c.boundaries[index]=clamp(value,low,high); storeDisplayedValues(key, valuesFromBoundaries(c.boundaries)); render();
     }
     function renderPie(key,c) {
         c.pie.innerHTML=`<title>${key==='mt'?'Microtubules present':'Microtubules absent'} state populations</title>`;
         let cursor=0;
-        states.forEach(s=>{ const value=c.values[s.key]; if(value>0){ const el=document.createElementNS('http://www.w3.org/2000/svg',value>=100?'circle':'path'); if(value>=100){el.setAttribute('cx','0');el.setAttribute('cy','0');el.setAttribute('r','1');} else el.setAttribute('d',piePath(cursor/100,(cursor+value)/100)); el.setAttribute('fill',s.color); el.setAttribute('aria-label',`${s.label}: ${value.toFixed(0)} percent`); c.pie.appendChild(el); } cursor+=value; });
+        const values=displayedValues(key);
+        states.forEach(s=>{ const value=values[s.key]; if(value>0){ const el=document.createElementNS('http://www.w3.org/2000/svg',value>=100?'circle':'path'); if(value>=100){el.setAttribute('cx','0');el.setAttribute('cy','0');el.setAttribute('r','1');} else el.setAttribute('d',piePath(cursor/100,(cursor+value)/100)); el.setAttribute('fill',s.color); el.setAttribute('aria-label',`${s.label}: ${value.toFixed(2)} percent`); c.pie.appendChild(el); } cursor+=value; });
     }
-    function renderHandles(c) {
+    function renderHandles(c,key) {
         const rect=c.boundaryLayer.getBoundingClientRect(), cx=rect.width/2, cy=rect.height/2, radius=Math.min(rect.width,rect.height)/2;
-        c.boundaryLayer.querySelectorAll('.boundary-handle').forEach((handle,i)=>{ const angle=c.boundaries[i]/100*Math.PI*2-Math.PI/2; handle.style.left=`${cx+Math.cos(angle)*radius}px`; handle.style.top=`${cy+Math.sin(angle)*radius}px`; handle.style.color=states[i].color; handle.title=`${states[i].label} to ${states[i+1].label}: ${c.boundaries[i].toFixed(0)}%`; });
+        c.boundaryLayer.querySelectorAll('.boundary-handle').forEach((handle,i)=>{ const angle=c.boundaries[i]/100*Math.PI*2-Math.PI/2; handle.style.left=`${cx+Math.cos(angle)*radius}px`; handle.style.top=`${cy+Math.sin(angle)*radius}px`; handle.style.color=states[i].color; handle.title=`${states[i].label} to ${states[i+1].label}: ${c.boundaries[i].toFixed(2)}%`; });
     }
     function fmt(v) { return Number.isFinite(v)?`${v>=100?v.toFixed(0):v>=10?v.toFixed(1):v.toFixed(2)} s⁻¹`:'very fast'; }
     function fmtPercent(value) { return String(Number(value.toPrecision(15))); }
+    function populationInput(conditionKey,state,finalState) {
+        const value=displayedValues(conditionKey)[state.key];
+        if(conditionKey==='mt'&&stimulationMode) return `${fmtPercent(value)}%`;
+        const editable=conditionKey==='basal' || !stimulationMode;
+        const readOnly=finalState || !editable;
+        return `<input class="population-input" type="text" inputmode="decimal" autocomplete="off" aria-label="${state.label} ${conditionKey==='basal'?'off':'on'} microtubule percentage${finalState?' (remainder)':''}" value="${fmtPercent(value)}" data-condition="${conditionKey}" data-state="${state.key}"${readOnly?' readonly':''}${finalState?' title="Automatically set so the percentages sum to 100%"':''}>%`;
+    }
     function renderTable(rates) {
         const body=document.getElementById('summary-body'); body.innerHTML='';
         states.forEach((s,index)=>{
             const a=rates.basal[s.key], b=rates.mt[s.key], fold=Number.isFinite(a)&&a>0&&Number.isFinite(b)?b/a:Infinity;
             const finalState=index===states.length-1;
             const row=document.createElement('tr');
-            const populationCell=(conditionKey)=>{
-                const value=conditions[conditionKey].values[s.key];
-                return `<input class="population-input" type="text" inputmode="decimal" autocomplete="off" aria-label="${s.label} ${conditionKey==='basal'?'off':'on'} microtubule percentage${finalState?' (remainder)':''}" value="${fmtPercent(value)}" data-condition="${conditionKey}" data-state="${s.key}"${finalState?' readonly title="Automatically set so the percentages sum to 100%"':''}>%`;
-            };
-            row.innerHTML=`<td><span class="state-cell"><span class="state-swatch" style="background:${s.color}"></span>${s.label}</span></td><td class="metric">${populationCell('basal')}</td><td class="metric">${populationCell('mt')}</td><td class="metric">${fmt(a)}</td><td class="metric">${fmt(b)}</td><td class="metric">${Number.isFinite(fold)?`${fold.toFixed(1)} ×`:'very large'}</td>`;
+            const stimulationCell=stimulationMode
+                ? `<input class="population-input stimulation-input" type="text" inputmode="decimal" autocomplete="off" aria-label="${s.label} MT stimulation factor" value="${fmtPercent(stimulations[s.key] || 1)}" data-state="${s.key}"> ×`
+                : `${Number.isFinite(fold)?`${fold.toFixed(2)} ×`:'very large'}`;
+            row.innerHTML=`<td><span class="state-cell"><span class="state-swatch" style="background:${s.color}"></span>${s.label}</span></td><td class="metric">${populationInput('basal',s,finalState)}</td><td class="metric">${populationInput('mt',s,finalState)}</td><td class="metric">${fmt(a)}</td><td class="metric">${fmt(b)}</td><td class="metric">${stimulationCell}</td>`;
             body.appendChild(row);
         });
-        body.querySelectorAll('.population-input:not([readonly])').forEach(input=>input.addEventListener('keydown',event=>{
+        body.querySelectorAll('.population-input:not([readonly]):not(.stimulation-input)').forEach(input=>input.addEventListener('keydown',event=>{
             if(event.key!=='Enter') return;
             event.preventDefault();
             commitPopulationInput(input);
         }));
+        body.querySelectorAll('.stimulation-input').forEach(input=>input.addEventListener('keydown',event=>{
+            if(event.key!=='Enter') return;
+            event.preventDefault();
+            const value=Number(input.value.trim().replace(',','.'));
+            if(!Number.isFinite(value)||value<=0||input.value.trim()==='') { render(); return; }
+            stimulations[input.dataset.state]=value;
+            render();
+            document.querySelector(`.stimulation-input[data-state="${input.dataset.state}"]`)?.focus();
+        }));
+        document.getElementById('table-note').textContent=stimulationMode
+            ? 'Enter an MT stimulation factor and press Enter. On-MT populations are calculated from off-MT populations ÷ stimulation, then normalized to 100%.'
+            : `Edit the first ${states.length-1} percentages in either condition and press Enter; the final state adjusts to keep each pie at 100%.`;
     }
     function commitPopulationInput(input) {
-        const condition=conditions[input.dataset.condition];
+        const conditionKey=input.dataset.condition;
         const stateIndex=states.findIndex(state=>state.key===input.dataset.state);
+        if(conditionKey==='mt'&&stimulationMode) { render(); return; }
+        const values=displayedValues(conditionKey);
         const entered=Number(input.value.trim().replace(',','.'));
         if(!Number.isFinite(entered)||input.value.trim()==='') { render(); return; }
-        const otherTotal=states.slice(0,-1).reduce((sum,state,index)=>index===stateIndex?sum:sum+condition.values[state.key],0);
+        const otherTotal=states.slice(0,-1).reduce((sum,state,index)=>index===stateIndex?sum:sum+values[state.key],0);
         const maximum=Math.max(0,100-otherTotal);
-        condition.values[states[stateIndex].key]=clamp(entered,0,maximum);
-        condition.values[states[states.length-1].key]=100-states.slice(0,-1).reduce((sum,state)=>sum+condition.values[state.key],0);
-        condition.boundaries=boundariesFromValues(condition.values);
+        values[states[stateIndex].key]=clamp(entered,0,maximum);
+        values[states[states.length-1].key]=100-states.slice(0,-1).reduce((sum,state)=>sum+values[state.key],0);
+        storeDisplayedValues(conditionKey,values);
         render();
-        const nextInput=document.querySelector(`.population-input[data-condition="${input.dataset.condition}"][data-state="${input.dataset.state}"]`);
+        const nextInput=document.querySelector(`.population-input[data-condition="${conditionKey}"][data-state="${input.dataset.state}"]`);
         nextInput?.focus();
     }
     function resetToPresetValues() {
+        threeStateMode=false; stimulationMode=false; states=fiveStates;
         conditions.basal.fluxInput.value='1.0';
         conditions.mt.fluxInput.value='4.0';
-        conditions.basal.values={c1:21.08,c2:12.23,c3:29.03,c4:22.4,c4apo:15.26};
-        conditions.mt.values={c1:21.19,c2:14.37,c3:34.51,c4:14.35,c4apo:15.59};
-        Object.values(conditions).forEach(condition=>{condition.boundaries=boundariesFromValues(condition.values);});
+        conditions.basal.values={...initialValues.basal};
+        conditions.mt.values={...initialValues.mt};
+        adpWeights={
+            basal:{c2:12.23/63.66,c3:29.03/63.66,c4:22.4/63.66},
+            mt:{c2:14.37/63.23,c3:34.51/63.23,c4:14.35/63.23}
+        };
+        setStimulationsFromCurrentValues();
         render();
     }
     function render() {
+        updateToggleLabels();
+        if(stimulationMode) calculateStimulatedValues();
         const rates={};
-        Object.entries(conditions).forEach(([key,c])=>{ c.values=valuesFromBoundaries(c.boundaries); renderPie(key,c); renderHandles(c); const flux=Math.max(Number.parseFloat(c.fluxInput.value)||0,0); rates[key]=Object.fromEntries(states.map(s=>[s.key,c.values[s.key]<=0||flux<=0?Infinity:flux/(c.values[s.key]/100)])); });
+        Object.entries(conditions).forEach(([key,c])=>{
+            const values=displayedValues(key);
+            c.boundaries=boundariesFromValues(values);
+            renderPie(key,c);
+            renderHandles(c,key);
+            const conditionFlux=flux(key);
+            rates[key]=Object.fromEntries(states.map(s=>[s.key,values[s.key]<=0||conditionFlux<=0?Infinity:conditionFlux/(values[s.key]/100)]));
+        });
         renderTable(rates);
     }
-    Object.entries(conditions).forEach(([key,c])=>{
-        c.boundaries=boundariesFromValues(c.values);
-        states.slice(0,-1).forEach((state,i)=>{ const h=document.createElement('button'); h.type='button'; h.className='boundary-handle'; h.setAttribute('aria-label',`${state.label} boundary`); h.addEventListener('pointerdown',e=>{activeDrag.conditionKey=key;activeDrag.boundaryIndex=i;h.setPointerCapture(e.pointerId);}); h.addEventListener('keydown',e=>{ const step=e.shiftKey?2:1; let v=c.boundaries[i]; if(['ArrowLeft','ArrowDown'].includes(e.key))v-=step; else if(['ArrowRight','ArrowUp'].includes(e.key))v+=step; else if(e.key==='Home')v=i?c.boundaries[i-1]:0; else if(e.key==='End')v=i===c.boundaries.length-1?100:c.boundaries[i+1]; else return; e.preventDefault();setBoundary(key,i,v); }); c.boundaryLayer.appendChild(h); });
-        c.fluxInput.addEventListener('input',render);
-    });
+    function rebuildHandles() {
+        Object.entries(conditions).forEach(([key,c])=>{
+            c.boundaryLayer.innerHTML='';
+            if(key==='mt'&&stimulationMode) return;
+            states.slice(0,-1).forEach((state,i)=>{
+                const h=document.createElement('button'); h.type='button'; h.className='boundary-handle'; h.setAttribute('aria-label',`${state.label} boundary`);
+                h.addEventListener('pointerdown',e=>{activeDrag.conditionKey=key;activeDrag.boundaryIndex=i;h.setPointerCapture(e.pointerId);});
+                h.addEventListener('keydown',e=>{ const values=displayedValues(key), boundaries=boundariesFromValues(values), step=e.shiftKey?2:1; let v=boundaries[i]; if(['ArrowLeft','ArrowDown'].includes(e.key))v-=step; else if(['ArrowRight','ArrowUp'].includes(e.key))v+=step; else if(e.key==='Home')v=i?boundaries[i-1]:0; else if(e.key==='End')v=i===boundaries.length-1?100:boundaries[i+1]; else return; e.preventDefault();c.boundaries=boundaries;setBoundary(key,i,v); });
+                c.boundaryLayer.appendChild(h);
+            });
+        });
+    }
+    function toggleStateMode() {
+        const oldStates=states;
+        if(!threeStateMode) {
+            adpWeights=Object.fromEntries(['basal','mt'].map(key=>{const values=conditions[key].values,total=values.c2+values.c3+values.c4;return [key,total>0?{c2:values.c2/total,c3:values.c3/total,c4:values.c4/total}:{c2:1/3,c3:1/3,c4:1/3}];}));
+            const oldStim=stimulationMode?{...stimulations}:foldChanges();
+            const oldOff=displayedValues('basal'),oldOn=displayedValues('mt');
+            states=threeStates;threeStateMode=true;
+            if(stimulationMode) stimulations=Object.fromEntries(states.map(state=>{const off=state.key==='adp'?oldOff.c2+oldOff.c3+oldOff.c4:oldOff[state.key],on=state.key==='adp'?oldOn.c2+oldOn.c3+oldOn.c4:oldOn[state.key];return [state.key,oldStim[state.key]||(!off||!on?1:(flux('mt')/on)/(flux('basal')/off))];}));
+        } else {
+            const oldStim=stimulationMode?{...stimulations}:null;
+            states=fiveStates;threeStateMode=false;
+            if(stimulationMode) stimulations=Object.fromEntries(states.map(state=>[state.key,state.key==='c2'||state.key==='c3'||state.key==='c4'?oldStim.adp:oldStim[state.key]]));
+        }
+        rebuildHandles();
+        render();
+    }
+    function toggleStimulationMode() {
+        if(!stimulationMode) setStimulationsFromCurrentValues();
+        stimulationMode=!stimulationMode;
+        rebuildHandles();
+        render();
+    }
+    Object.values(conditions).forEach(c=>c.fluxInput.addEventListener('input',render));
     document.addEventListener('pointermove',e=>{ if(!activeDrag.conditionKey)return; const c=conditions[activeDrag.conditionKey],rect=c.pie.getBoundingClientRect(); setBoundary(activeDrag.conditionKey,activeDrag.boundaryIndex,fractionFromPointer(e.clientX,e.clientY,rect)); });
     document.addEventListener('pointerup',()=>{activeDrag.conditionKey=null;activeDrag.boundaryIndex=null;});
     document.querySelectorAll('.flux-stepper').forEach(button=>button.addEventListener('click',()=>{ const input=document.getElementById(button.dataset.target), next=Math.max(0,(Number.parseFloat(input.value)||0)+Number.parseFloat(button.dataset.delta)); input.value=(Math.round(next*10)/10).toFixed(1); input.dispatchEvent(new Event('input')); }));
     document.getElementById('reset-button').addEventListener('click',resetToPresetValues);
+    document.getElementById('three-state-toggle').addEventListener('click',toggleStateMode);
+    document.getElementById('stimulation-toggle').addEventListener('click',toggleStimulationMode);
     function updateHeight(){document.documentElement.style.setProperty('--app-height',`${window.innerHeight}px`);}
-    window.addEventListener('resize',()=>{updateHeight();render();}); updateHeight(); render();
+    window.addEventListener('resize',()=>{updateHeight();render();});
+    setStimulationsFromCurrentValues();rebuildHandles();updateHeight();render();
 </script>
 </body>
 </html>
