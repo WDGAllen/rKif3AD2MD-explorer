@@ -26,7 +26,9 @@
         .condition-title { font-size:.98rem; font-weight:800; color:var(--muted); }
         .flux-pill { display:inline-flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid var(--line); border-radius:999px; background:#0e141e; color:var(--muted); font-size:.8rem; font-weight:800; white-space:nowrap; }
         .flux-pill input { width:62px; border:0; background:transparent; color:var(--ink); font:inherit; text-align:center; }
+        .flux-pill input[readonly] { color:#c4d1e4; }
         .flux-stepper { border:0; color:var(--ink); background:#273348; width:24px; height:24px; border-radius:50%; cursor:pointer; font-weight:900; }
+        .flux-stepper:disabled { opacity:.35; cursor:default; }
         .chart-shell { position:relative; flex:1 1 auto; min-height:0; display:grid; place-items:center; }
         .pie-stage { position:relative; width:min(100%,min(62vh,620px)); aspect-ratio:1; padding:24px; }
         .pie-chart,.boundary-layer { position:absolute; inset:24px; width:calc(100% - 48px); height:calc(100% - 48px); }
@@ -94,7 +96,7 @@
             <div class="chart-shell"><div class="pie-stage"><svg id="basal-pie" class="pie-chart" viewBox="-1.02 -1.02 2.04 2.04" role="img" aria-label="Microtubules absent five-state pie chart"></svg><div id="basal-boundaries" class="boundary-layer" aria-label="Pie chart boundary handles"></div></div></div>
         </article>
         <article class="condition">
-            <div class="condition-head"><div class="condition-title">Microtubules present</div><label class="flux-pill"><span>k<sub>cat</sub></span><button class="flux-stepper" data-target="mt-flux" data-delta="-0.1" aria-label="Decrease rate">−</button><input id="mt-flux" type="number" min="0" step="0.1" value="4.0" aria-label="On microtubule forward flux"><button class="flux-stepper" data-target="mt-flux" data-delta="0.1" aria-label="Increase rate">+</button><span>s<sup>−1</sup></span></label></div>
+            <div class="condition-head"><div class="condition-title">Microtubules present</div><label class="flux-pill"><span id="mt-flux-label">k<sub>cat</sub></span><button type="button" class="flux-stepper" data-target="mt-flux" data-delta="-0.1" aria-label="Decrease kcat">−</button><input id="mt-flux" type="number" min="0" step="0.1" value="4.0" aria-label="On microtubule kcat"><button type="button" class="flux-stepper" data-target="mt-flux" data-delta="0.1" aria-label="Increase kcat">+</button><span>s<sup>−1</sup></span></label></div>
             <div class="chart-shell"><div class="pie-stage"><svg id="mt-pie" class="pie-chart" viewBox="-1.02 -1.02 2.04 2.04" role="img" aria-label="Microtubules present five-state pie chart"></svg><div id="mt-boundaries" class="boundary-layer" aria-label="Pie chart boundary handles"></div></div></div>
         </article>
     </section>
@@ -153,7 +155,16 @@
     function storeDisplayedValues(conditionKey, values) {
         conditions[conditionKey].values = detailedValues(values, conditionKey);
     }
-    function flux(conditionKey) { return Math.max(Number.parseFloat(conditions[conditionKey].fluxInput.value) || 0, 0); }
+    function flux(conditionKey) {
+        if (conditionKey === 'mt' && stimulationMode) return calculateKcat();
+        return Math.max(Number.parseFloat(conditions[conditionKey].fluxInput.value) || 0, 0);
+    }
+    function calculateKcat() {
+        const basalRate = Math.max(Number.parseFloat(conditions.basal.fluxInput.value) || 0, 0);
+        const off = displayedValues('basal');
+        const denominator = states.reduce((sum, state) => sum + off[state.key] / Math.max(Number(stimulations[state.key]) || 1, 1e-12), 0);
+        return denominator > 0 ? basalRate * 100 / denominator : 0;
+    }
     function foldChanges() {
         const off = displayedValues('basal'), on = displayedValues('mt'), offFlux = flux('basal'), onFlux = flux('mt');
         return Object.fromEntries(states.map(state => [state.key, !off[state.key] || !on[state.key] || !offFlux || !onFlux ? Infinity : (onFlux / on[state.key]) / (offFlux / off[state.key])]));
@@ -167,6 +178,7 @@
         const sum = states.slice(0,-1).reduce((acc, state) => acc + values[state.key], 0);
         values[states[states.length-1].key] = Math.max(0, 100 - sum);
         conditions.mt.values = detailedValues(values, threeStateMode ? 'basal' : 'mt');
+        conditions.mt.fluxInput.value = fmtPercent(calculateKcat());
     }
     function updateToggleLabels() {
         document.getElementById('three-state-toggle').textContent = threeStateMode ? 'Return to five state' : 'Revert to three state';
@@ -232,7 +244,7 @@
             document.querySelector(`.stimulation-input[data-state="${input.dataset.state}"]`)?.focus();
         }));
         document.getElementById('table-note').textContent=stimulationMode
-            ? 'Enter an MT stimulation factor and press Enter. On-MT populations are calculated from off-MT populations ÷ stimulation, then normalized to 100%.'
+            ? 'Stimulation factors are forward-rate fold changes. With kbasal fixed, kcat is calculated as kbasal × 100 / Σ(off-MT % ÷ stimulation); the On-MT pie is then set to the resulting state proportions. Some stimulation sets imply a kcat other than 4 s⁻¹.'
             : `Edit the first ${states.length-1} percentages in either condition and press Enter; the final state adjusts to keep each pie at 100%.`;
     }
     function commitPopulationInput(input) {
@@ -267,6 +279,10 @@
     function render() {
         updateToggleLabels();
         if(stimulationMode) calculateStimulatedValues();
+        conditions.mt.fluxInput.readOnly=stimulationMode;
+        conditions.mt.fluxInput.setAttribute('aria-label',stimulationMode?'Calculated kcat from kbasal and MT stimulation':'On microtubule kcat');
+        document.getElementById('mt-flux-label').innerHTML=stimulationMode?'k<sub>cat</sub> (calculated)':'k<sub>cat</sub>';
+        document.querySelectorAll('.flux-stepper[data-target="mt-flux"]').forEach(button=>button.disabled=stimulationMode);
         const rates={};
         Object.entries(conditions).forEach(([key,c])=>{
             const values=displayedValues(key);
@@ -274,7 +290,7 @@
             renderPie(key,c);
             renderHandles(c,key);
             const conditionFlux=flux(key);
-            rates[key]=Object.fromEntries(states.map(s=>[s.key,values[s.key]<=0||conditionFlux<=0?Infinity:conditionFlux/(values[s.key]/100)]));
+            rates[key]=Object.fromEntries(states.map(s=>[s.key,values[s.key]<=0?Infinity:conditionFlux/(values[s.key]/100)]));
         });
         renderTable(rates);
     }
